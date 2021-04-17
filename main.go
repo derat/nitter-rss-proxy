@@ -155,7 +155,7 @@ func (hnd *handler) rewrite(w http.ResponseWriter, b []byte, user string) error 
 	log.Printf("Rewriting %v item(s) for %v", len(of.Items), user)
 
 	feed := &feeds.Feed{
-		Title:       user,
+		Title:       of.Title,
 		Link:        &feeds.Link{Href: rewriteTwitterURL(of.Link)},
 		Description: "Twitter feed for " + user,
 	}

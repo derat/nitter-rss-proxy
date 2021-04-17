@@ -18,6 +18,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/feeds"
@@ -39,6 +40,7 @@ const (
 
 func main() {
 	addr := flag.String("addr", "localhost:8080", "Network address to listen on")
+	cycle := flag.Bool("cycle", true, "Cycle through instances")
 	fastCGI := flag.Bool("fastcgi", false, "Use FastCGI instead of listening on -addr")
 	format := flag.String("format", "atom", `Feed format to write ("atom", "json", "rss")`)
 	instances := flag.String("instances", "https://nitter.net", "Comma-separated list of URLS of Nitter instances to use")
@@ -46,7 +48,7 @@ func main() {
 	user := flag.String("user", "", "User to fetch to stdout (instead of starting a server)")
 	flag.Parse()
 
-	hnd, err := newHandler(*instances, time.Duration(*timeout)*time.Second, feedFormat(*format))
+	hnd, err := newHandler(*instances, *cycle, time.Duration(*timeout)*time.Second, feedFormat(*format))
 	if err != nil {
 		log.Fatal("Failed creating handler: ", err)
 	}
@@ -70,12 +72,16 @@ func main() {
 type handler struct {
 	client    http.Client
 	instances []*url.URL
+	cycle     bool       // cycle through instances
+	start     int        // starting index in instances
+	mu        sync.Mutex // protects start
 	format    feedFormat
 }
 
-func newHandler(instances string, timeout time.Duration, format feedFormat) (*handler, error) {
+func newHandler(instances string, cycle bool, timeout time.Duration, format feedFormat) (*handler, error) {
 	hnd := &handler{
 		client: http.Client{Timeout: timeout},
+		cycle:  cycle,
 		format: format,
 	}
 
@@ -116,7 +122,15 @@ func (hnd *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	for _, in := range hnd.instances {
+	start := hnd.start
+	if hnd.cycle {
+		hnd.mu.Lock()
+		hnd.start = (hnd.start + 1) % len(hnd.instances)
+		hnd.mu.Unlock()
+	}
+
+	for i := 0; i < len(hnd.instances); i++ {
+		in := hnd.instances[(start+i)%len(hnd.instances)]
 		b, err := hnd.fetch(in, user)
 		if err != nil {
 			log.Printf("Failed fetching %v from %v: %v", user, in, err)

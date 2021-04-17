@@ -40,6 +40,7 @@ const (
 
 func main() {
 	addr := flag.String("addr", "localhost:8080", "Network address to listen on")
+	base := flag.String("base", "", "Base URL for served feeds")
 	cycle := flag.Bool("cycle", true, "Cycle through instances")
 	fastCGI := flag.Bool("fastcgi", false, "Use FastCGI instead of listening on -addr")
 	format := flag.String("format", "atom", `Feed format to write ("atom", "json", "rss")`)
@@ -48,7 +49,7 @@ func main() {
 	user := flag.String("user", "", "User to fetch to stdout (instead of starting a server)")
 	flag.Parse()
 
-	hnd, err := newHandler(*instances, *cycle, time.Duration(*timeout)*time.Second, feedFormat(*format))
+	hnd, err := newHandler(*base, *instances, *cycle, time.Duration(*timeout)*time.Second, feedFormat(*format))
 	if err != nil {
 		log.Fatal("Failed creating handler: ", err)
 	}
@@ -70,6 +71,7 @@ func main() {
 
 // handler implements http.Handler to accept GET requests for RSS feeds.
 type handler struct {
+	base      *url.URL
 	client    http.Client
 	instances []*url.URL
 	cycle     bool       // cycle through instances
@@ -78,11 +80,18 @@ type handler struct {
 	format    feedFormat
 }
 
-func newHandler(instances string, cycle bool, timeout time.Duration, format feedFormat) (*handler, error) {
+func newHandler(base, instances string, cycle bool, timeout time.Duration, format feedFormat) (*handler, error) {
 	hnd := &handler{
 		client: http.Client{Timeout: timeout},
 		cycle:  cycle,
 		format: format,
+	}
+
+	if base != "" {
+		var err error
+		if hnd.base, err = url.Parse(base); err != nil {
+			return nil, fmt.Errorf("failed parsing %q: %v", base, err)
+		}
 	}
 
 	for _, in := range strings.Split(instances, ",") {
@@ -92,7 +101,7 @@ func newHandler(instances string, cycle bool, timeout time.Duration, format feed
 		}
 		u, err := url.Parse(in)
 		if err != nil {
-			return nil, fmt.Errorf("failed parsing %q: %v", u, err)
+			return nil, fmt.Errorf("failed parsing %q: %v", in, err)
 		}
 		hnd.instances = append(hnd.instances, u)
 	}
@@ -256,6 +265,11 @@ func (hnd *handler) rewrite(w http.ResponseWriter, b []byte, user string) error 
 		return err
 	case jsonFormat:
 		jf := (&feeds.JSON{Feed: feed}).JSONFeed()
+		if hnd.base != nil {
+			u := *hnd.base
+			u.Path = path.Join(u.Path, user)
+			jf.FeedUrl = u.String()
+		}
 		jf.Favicon = img
 		jf.Icon = img
 		enc := json.NewEncoder(w)

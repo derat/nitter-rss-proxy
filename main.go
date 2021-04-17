@@ -85,7 +85,8 @@ func newHandler(instances string, timeout time.Duration, format feedFormat) (*ha
 
 // Matches comma-separated Twitter usernames with an optional /media, /search, or /with_replies suffix
 // supported by Nitter's RSS handler (https://github.com/zedeus/nitter/blob/master/src/routes/rss.nim).
-var userRegexp = regexp.MustCompile(`^[_a-zA-Z0-9,]+(/(media|search|with_replies))?$`)
+// Ignores any leading junk that might be present in the path e.g. when proxying a prefix to FastCGI.
+var userRegexp = regexp.MustCompile(`[_a-zA-Z0-9,]+(/(media|search|with_replies))?$`)
 
 func (hnd *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
@@ -93,12 +94,14 @@ func (hnd *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if len(req.URL.Path) == 0 || req.URL.Path[0] != '/' {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
+	// Sigh.
+	if strings.HasSuffix(req.URL.Path, "favicon.ico") {
+		http.Error(w, "File not found", http.StatusNotFound)
 		return
 	}
-	user := req.URL.Path[1:]
-	if !userRegexp.MatchString(user) {
+
+	user := userRegexp.FindString(req.URL.Path)
+	if user == "" {
 		http.Error(w, "Invalid user", http.StatusBadRequest)
 		return
 	}

@@ -184,11 +184,18 @@ func (hnd *handler) rewrite(w http.ResponseWriter, b []byte, user string) error 
 
 	for _, oi := range of.Items {
 		item := &feeds.Item{
-			Title:       oi.Title,
-			Description: oi.Description,
-			Link:        &feeds.Link{Href: rewriteTwitterURL(oi.Link)},
-			Id:          rewriteTwitterURL(oi.GUID),
-			Content:     oi.Content,
+			Title:   oi.Title,
+			Link:    &feeds.Link{Href: rewriteTwitterURL(oi.Link)},
+			Id:      rewriteTwitterURL(oi.GUID),
+			Content: oi.Description, // Content field seems to be empty?
+		}
+
+		// gofeed appears to often return HTML in the Description field, while the feeds
+		// package seems to it to contain text when writing a JSON feed.
+		if hnd.format == jsonFormat {
+			item.Description = oi.Title
+		} else {
+			item.Description = oi.Description
 		}
 
 		if oi.PublishedParsed != nil {

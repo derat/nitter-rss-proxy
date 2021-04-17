@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/fcgi"
 	"net/url"
+	"os"
 	"path"
 	"regexp"
 	"strings"
@@ -42,13 +43,22 @@ func main() {
 	format := flag.String("format", "atom", `Feed format to write ("atom", "json", "rss")`)
 	instances := flag.String("instances", "https://nitter.net", "Comma-separated list of URLS of Nitter instances to use")
 	timeout := flag.Int("timeout", 10, "HTTP timeout in seconds for fetching a feed from a Nitter instance")
+	user := flag.String("user", "", "User to fetch to stdout (instead of starting a server)")
 	flag.Parse()
 
 	hnd, err := newHandler(*instances, time.Duration(*timeout)*time.Second, feedFormat(*format))
 	if err != nil {
 		log.Fatal("Failed creating handler: ", err)
 	}
-	if *fastCGI {
+
+	if *user != "" {
+		w := fakeResponseWriter{}
+		req, _ := http.NewRequest(http.MethodGet, "/"+*user, nil)
+		hnd.ServeHTTP(&w, req)
+		if w.status != http.StatusOK {
+			log.Fatal(w.msg)
+		}
+	} else if *fastCGI {
 		log.Fatal("Failed serving over FastCGI: ", fcgi.Serve(nil, hnd))
 	} else {
 		srv := &http.Server{Addr: *addr, Handler: hnd}
@@ -247,3 +257,22 @@ func rewriteTwitterURL(orig string) string {
 	u.Fragment = "" // get rid of weird '#m' fragments added by Nitter
 	return u.String()
 }
+
+// fakeResponseWriter is an http.ResponseWriter implementation that just writes to stdout.
+// It's used for the -user flag.
+type fakeResponseWriter struct {
+	status int
+	msg    string
+}
+
+func (w *fakeResponseWriter) Header() http.Header { return map[string][]string{} }
+
+func (w *fakeResponseWriter) Write(b []byte) (int, error) {
+	if w.status != http.StatusOK {
+		w.msg = string(b)
+		return len(b), nil
+	}
+	return os.Stdout.Write(b)
+}
+
+func (w *fakeResponseWriter) WriteHeader(statusCode int) { w.status = statusCode }

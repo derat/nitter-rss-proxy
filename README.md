@@ -34,6 +34,8 @@ Usage of nitter-rss-proxy:
         Comma-separated list of URLS of Nitter instances to use (default "https://nitter.net")
   -timeout int
         HTTP timeout in seconds for fetching a feed from a Nitter instance (default 10)
+  -user string
+        User to fetch to stdout (instead of starting a server)
 ```
 
 The server passes `GET` request paths to the Nitter instance:
@@ -43,3 +45,6 @@ The server passes `GET` request paths to the Nitter instance:
 *   `http://localhost:8080/USPS/media`
 *   `http://localhost:8080/USPS/search`
 *   `http://localhost:8080/USPS/with_replies`
+
+You can also pass the `-user` flag to fetch the supplied user's feed and write
+it to stdout.

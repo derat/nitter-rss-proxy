@@ -85,15 +85,19 @@ func newHandler(instances string, cycle bool, timeout time.Duration, format feed
 		format: format,
 	}
 
-	if instances == "" {
-		return nil, errors.New("no instances supplied")
-	}
 	for _, in := range strings.Split(instances, ",") {
+		// Hack to permit trailing commas to make it easier to comment out instances in configs.
+		if in == "" {
+			continue
+		}
 		u, err := url.Parse(in)
 		if err != nil {
 			return nil, fmt.Errorf("failed parsing %q: %v", u, err)
 		}
 		hnd.instances = append(hnd.instances, u)
+	}
+	if len(hnd.instances) == 0 {
+		return nil, errors.New("no instances supplied")
 	}
 
 	return hnd, nil

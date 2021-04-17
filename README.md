@@ -25,7 +25,9 @@ Compile and install the server by running `go install`.
 ```
 Usage of nitter-rss-proxy:
   -addr string
-        Network address to listen on (empty for FastCGI) (default "localhost:8080")
+        Network address to listen on (default "localhost:8080")
+  -fastcgi
+        Use FastCGI instead of listening on -addr
   -format string
         Feed format to write ("atom", "json", "rss") (default "atom")
   -instances string

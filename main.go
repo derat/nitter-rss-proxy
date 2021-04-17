@@ -37,7 +37,8 @@ const (
 )
 
 func main() {
-	addr := flag.String("addr", "localhost:8080", "Network address to listen on (empty for FastCGI)")
+	addr := flag.String("addr", "localhost:8080", "Network address to listen on")
+	fastCGI := flag.Bool("fastcgi", false, "Use FastCGI instead of listening on -addr")
 	format := flag.String("format", "atom", `Feed format to write ("atom", "json", "rss")`)
 	instances := flag.String("instances", "https://nitter.net", "Comma-separated list of URLS of Nitter instances to use")
 	timeout := flag.Int("timeout", 10, "HTTP timeout in seconds for fetching a feed from a Nitter instance")
@@ -47,11 +48,11 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed creating handler: ", err)
 	}
-	if *addr != "" {
+	if *fastCGI {
+		log.Fatal("Failed serving over FastCGI: ", fcgi.Serve(nil, hnd))
+	} else {
 		srv := &http.Server{Addr: *addr, Handler: hnd}
 		log.Fatalf("Failed serving on %v: %v", *addr, srv.ListenAndServe())
-	} else {
-		log.Fatal("Failed serving over FastCGI: ", fcgi.Serve(nil, hnd))
 	}
 }
 

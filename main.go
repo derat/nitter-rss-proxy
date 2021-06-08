@@ -39,17 +39,23 @@ const (
 )
 
 func main() {
+	var opts handlerOptions
+
 	addr := flag.String("addr", "localhost:8080", "Network address to listen on")
 	base := flag.String("base", "", "Base URL for served feeds")
-	cycle := flag.Bool("cycle", true, "Cycle through instances")
+	flag.BoolVar(&opts.cycle, "cycle", true, "Cycle through instances")
 	fastCGI := flag.Bool("fastcgi", false, "Use FastCGI instead of listening on -addr")
 	format := flag.String("format", "atom", `Feed format to write ("atom", "json", "rss")`)
 	instances := flag.String("instances", "https://nitter.net", "Comma-separated list of URLS of Nitter instances to use")
+	flag.BoolVar(&opts.rewrite, "rewrite", true, "Rewrite tweet content to point at twitter.com")
 	timeout := flag.Int("timeout", 10, "HTTP timeout in seconds for fetching a feed from a Nitter instance")
 	user := flag.String("user", "", "User to fetch to stdout (instead of starting a server)")
 	flag.Parse()
 
-	hnd, err := newHandler(*base, *instances, *cycle, time.Duration(*timeout)*time.Second, feedFormat(*format))
+	opts.format = feedFormat(*format)
+	opts.timeout = time.Duration(*timeout) * time.Second
+
+	hnd, err := newHandler(*base, *instances, opts)
 	if err != nil {
 		log.Fatal("Failed creating handler: ", err)
 	}
@@ -74,17 +80,22 @@ type handler struct {
 	base      *url.URL
 	client    http.Client
 	instances []*url.URL
-	cycle     bool       // cycle through instances
+	opts      handlerOptions
 	start     int        // starting index in instances
 	mu        sync.Mutex // protects start
-	format    feedFormat
 }
 
-func newHandler(base, instances string, cycle bool, timeout time.Duration, format feedFormat) (*handler, error) {
+type handlerOptions struct {
+	cycle   bool // cycle through instances
+	timeout time.Duration
+	format  feedFormat
+	rewrite bool // rewrite tweet content to point at Twitter
+}
+
+func newHandler(base, instances string, opts handlerOptions) (*handler, error) {
 	hnd := &handler{
-		client: http.Client{Timeout: timeout},
-		cycle:  cycle,
-		format: format,
+		client: http.Client{Timeout: opts.timeout},
+		opts:   opts,
 	}
 
 	if base != "" {
@@ -136,7 +147,7 @@ func (hnd *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	start := hnd.start
-	if hnd.cycle {
+	if hnd.opts.cycle {
 		hnd.mu.Lock()
 		hnd.start = (hnd.start + 1) % len(hnd.instances)
 		hnd.mu.Unlock()
@@ -179,11 +190,6 @@ func (hnd *handler) fetch(instance *url.URL, user string) ([]byte, error) {
 
 // rewrite parses user's feed from b and rewrites it to w.
 func (hnd *handler) rewrite(w http.ResponseWriter, b []byte, user string) error {
-	// Public Nitter instances seem to do haphazard rewriting of URLs.
-	// Most (all?) seem to use HTTP rather than HTTPS in links, even when the feed is fetched
-	// over HTTPS. https://nitter.hu rewrites everything to http://0x1.hu/, which doesn't even
-	// resolve. All of this sucks, because it means I can't just globally replace the instance
-	// URL in the feed data.
 	of, err := gofeed.NewParser().ParseString(string(b))
 	if err != nil {
 		return err
@@ -205,24 +211,33 @@ func (hnd *handler) rewrite(w http.ResponseWriter, b []byte, user string) error 
 
 	var img string
 	if of.Image != nil {
-		img = of.Image.URL
+		img = rewriteIconURL(of.Image.URL)
 		feed.Image = &feeds.Image{Url: img}
 	}
 
 	for _, oi := range of.Items {
+		// The Content field seems to be empty. gofeed appears to instead return the
+		// content (often including HTML) in the Description field.
+		content := oi.Description
+		if hnd.opts.rewrite {
+			if content, err = rewriteContent(oi.Description); err != nil {
+				return err
+			}
+		}
+
 		item := &feeds.Item{
 			Title:   oi.Title,
 			Link:    &feeds.Link{Href: rewriteTwitterURL(oi.Link)},
 			Id:      rewriteTwitterURL(oi.GUID),
-			Content: oi.Description, // Content field seems to be empty?
+			Content: content,
 		}
 
-		// gofeed appears to often return HTML in the Description field, while the feeds
-		// package seems to it to contain text when writing a JSON feed.
-		if hnd.format == jsonFormat {
+		// When writing a JSON feed, the feeds package seems to expect the Description field to
+		// contain text rather than HTML.
+		if hnd.opts.format == jsonFormat {
 			item.Description = oi.Title
 		} else {
-			item.Description = oi.Description
+			item.Description = content
 		}
 
 		if oi.PublishedParsed != nil {
@@ -245,13 +260,10 @@ func (hnd *handler) rewrite(w http.ResponseWriter, b []byte, user string) error 
 			item.Title = string(ut[:titleLen-1]) + "…"
 		}
 
-		// TODO: Nitter rewrites twitter.com links in the content. Rewrite these
-		// back to twitter.com. Maybe also rewrite Invidious links back to youtube.com.
-
 		feed.Add(item)
 	}
 
-	switch hnd.format {
+	switch hnd.opts.format {
 	case atomFormat:
 		af := (&feeds.Atom{Feed: feed}).AtomFeed()
 		af.Icon = img
@@ -280,8 +292,82 @@ func (hnd *handler) rewrite(w http.ResponseWriter, b []byte, user string) error 
 		w.Header().Set("Content-Type", "application/rss+xml; charset=UTF-8")
 		return feed.WriteRss(w)
 	default:
-		return fmt.Errorf("unknown format %q", hnd.format)
+		return fmt.Errorf("unknown format %q", hnd.opts.format)
 	}
+}
+
+// iconRegexp exactly matches a Nitter profile image URL,
+// e.g. "https://example.org/pic/profile_images%2F1234567890%2F_AbQ3eRu_400x400.jpg".
+var iconRegexp = regexp.MustCompile(`^https?://` +
+	`[-.a-zA-Z0-9]+` + // hostname
+	`/pic/profile_images(?:/|%2F)` +
+	`(\d+)` + // group 1: ID
+	`(?:/|%2F)` +
+	`([-_.a-zA-Z0-9]+)$`) // group 2: ID, size, extension
+
+// rewriteIconURL rewrites a Nitter profile image URL to the corresponding Twitter URL.
+func rewriteIconURL(u string) string {
+	ms := iconRegexp.FindStringSubmatch(u)
+	if ms == nil {
+		return u
+	}
+	return fmt.Sprintf("https://pbs.twimg.com/profile_images/%v/%v", ms[1], ms[2])
+}
+
+// tweetRegexp matches a Nitter URL referring to a tweet,
+// e.g. "https://example.org/someuser/status/1234567890#m",
+// within a larger block of text. The scheme is optional.
+var tweetRegexp = regexp.MustCompile(`(?:^|\b)?` +
+	`(https?://)?` + // group 1: optional scheme
+	`[-.a-zA-Z0-9]+/` + // hostname
+	`([_a-zA-Z0-9]+)` + // group 2: username
+	`/status/` +
+	`([0-9]+)` + // group 3: tweet ID
+	`(?:#m)?` + // nitter adds these hashes
+	`(?:$|\b)?`)
+
+// imgRegexp matches a Nitter URL referring to an image,
+// e.g. "https://example.org/pic/media%2FA3B6MFcQXBBcIa2.jpg",
+// within a larger block of text.
+var imgRegexp = regexp.MustCompile(`(?:^|\b)?` +
+	`https?://` +
+	`[-.a-zA-Z0-9]+/pic/media` + // hostname
+	`(?:/|%2F)` + // nitter seems to use %2F here; bug?
+	`([a-zA-Z0-9]+)` + // group 1: image ID
+	`\.(jpg)`) // group 2: extension
+
+// rewriteContent rewrites a tweet's HTML content.
+// Some public Nitter instances seem to be misconfigured, e.g. rewriting URLs to
+// start with "http://localhost", so we just modify all URLs that look like they
+// can be served by Twitter.
+func rewriteContent(s string) (string, error) {
+	// It'd be better to parse the HTML instead of using regular expressions, but that's quite
+	// painful to do (see https://github.com/derat/twittuh) so I'm trying to avoid it for now.
+
+	// Rewrite Tweet URLs. Only add a scheme if there was one initially
+	// (schemes seem to be omitted in link text).
+	s = tweetRegexp.ReplaceAllStringFunc(s, func(o string) string {
+		ms := tweetRegexp.FindStringSubmatch(o)
+		u := fmt.Sprintf("twitter.com/%v/status/%v", ms[2], ms[3])
+		if ms[1] != "" {
+			u = "https://" + u
+		}
+		return u
+	})
+
+	// Rewrite image URLs.
+	s = imgRegexp.ReplaceAllStringFunc(s, func(o string) string {
+		ms := imgRegexp.FindStringSubmatch(o)
+		return fmt.Sprintf("https://pbs.twimg.com/media/%v?format=%v", ms[1], ms[2])
+	})
+
+	// TODO: Rewrite Invidious links.
+	// TODO: Fetch embedded tweets.
+
+	// Make sure that newlines are preserved.
+	s = strings.ReplaceAll(s, "\n", "<br>")
+
+	return s, nil
 }
 
 // rewriteTwitterURL rewrites orig's scheme and hostname to be https://twitter.com.

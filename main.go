@@ -334,7 +334,8 @@ var imgRegexp = regexp.MustCompile(`(?:^|\b)?` +
 	`[-.a-zA-Z0-9]+/pic/media` + // hostname
 	`(?:/|%2F)` + // nitter seems to use %2F here; bug?
 	`([-_a-zA-Z0-9]+)` + // group 1: image ID
-	`\.(jpg|png)`) // group 2: extension
+	`\.(jpg|png)` + // group 2: extension
+	`(?:$|\b)?`)
 
 // videoRegexp matches a Nitter URL referring to a video,
 // e.g. "https://example.org/pic/video.twimg.com%2Ftweet_video%2FA47B3e5XMAM233z.mp4",
@@ -342,9 +343,7 @@ var imgRegexp = regexp.MustCompile(`(?:^|\b)?` +
 var videoRegexp = regexp.MustCompile(`(?:^|\b)?` +
 	`https?://` +
 	`[-.a-zA-Z0-9]+/pic/video.twimg.com` + // hostname
-	`(?:/|%2F)` +
-	`tweet_video` +
-	`(?:/|%2F)` +
+	`(?:/|%2F)tweet_video(?:/|%2F)` +
 	`([-_.a-zA-Z0-9]+)` + // group 1: video name and extension
 	`(?:$|\b)?`)
 
@@ -356,6 +355,14 @@ var videoThumbRegexp = regexp.MustCompile(`(?:^|\b)?` +
 	`[-.a-zA-Z0-9]+/pic/tweet_video_thumb` + // hostname
 	`(?:/|%2F)` +
 	`([-_.a-zA-Z0-9]+)` + // group 1: thumbnail name and extension
+	`(?:$|\b)?`)
+
+// youtubeRegexp matches an Invidious URL referring to a YouTube URL,
+// e.g. "https://example.org/watch?v=AxWGuBDrA1u", within a larger block of text.
+var youtubeRegexp = regexp.MustCompile(`(?:^|\b)?` +
+	`(https?://)?` + // group 1: optional scheme
+	`[-.a-zA-Z0-9]+/watch\?v=` + // hostname
+	`([-_a-zA-Z0-9]+)` + // group 2: video ID
 	`(?:$|\b)?`)
 
 // rewriteContent rewrites a tweet's HTML content.
@@ -383,6 +390,16 @@ func rewriteContent(s string) (string, error) {
 		return fmt.Sprintf("https://pbs.twimg.com/media/%v?format=%v", ms[1], ms[2])
 	})
 
+	// Rewrite YouTube (Invidious) URLs.
+	s = youtubeRegexp.ReplaceAllStringFunc(s, func(o string) string {
+		ms := youtubeRegexp.FindStringSubmatch(o)
+		u := "youtube.com/watch?v=" + ms[2]
+		if ms[1] != "" {
+			u = "https://" + u
+		}
+		return u
+	})
+
 	// Rewrite video and thumbnail URLs.
 	s = videoRegexp.ReplaceAllStringFunc(s, func(o string) string {
 		ms := videoRegexp.FindStringSubmatch(o)
@@ -393,7 +410,6 @@ func rewriteContent(s string) (string, error) {
 		return "https://video.twimg.com/tweet_video_thumb/" + ms[1]
 	})
 
-	// TODO: Rewrite Invidious links.
 	// TODO: Fetch embedded tweets.
 
 	// Make sure that newlines are preserved.

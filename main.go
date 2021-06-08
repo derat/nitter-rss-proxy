@@ -333,8 +333,30 @@ var imgRegexp = regexp.MustCompile(`(?:^|\b)?` +
 	`https?://` +
 	`[-.a-zA-Z0-9]+/pic/media` + // hostname
 	`(?:/|%2F)` + // nitter seems to use %2F here; bug?
-	`([a-zA-Z0-9]+)` + // group 1: image ID
-	`\.(jpg)`) // group 2: extension
+	`([-_a-zA-Z0-9]+)` + // group 1: image ID
+	`\.(jpg|png)`) // group 2: extension
+
+// videoRegexp matches a Nitter URL referring to a video,
+// e.g. "https://example.org/pic/video.twimg.com%2Ftweet_video%2FA47B3e5XMAM233z.mp4",
+// within a larger block of text.
+var videoRegexp = regexp.MustCompile(`(?:^|\b)?` +
+	`https?://` +
+	`[-.a-zA-Z0-9]+/pic/video.twimg.com` + // hostname
+	`(?:/|%2F)` +
+	`tweet_video` +
+	`(?:/|%2F)` +
+	`([-_.a-zA-Z0-9]+)` + // group 1: video name and extension
+	`(?:$|\b)?`)
+
+// videoThumbRegexp matches a Nitter URL referring to a video thumbnail,
+// e.g. "http://example.org/pic/tweet_video_thumb%2FA47B3e5XMAM233z.jpg",
+// within a larger block of text.
+var videoThumbRegexp = regexp.MustCompile(`(?:^|\b)?` +
+	`https?://` +
+	`[-.a-zA-Z0-9]+/pic/tweet_video_thumb` + // hostname
+	`(?:/|%2F)` +
+	`([-_.a-zA-Z0-9]+)` + // group 1: thumbnail name and extension
+	`(?:$|\b)?`)
 
 // rewriteContent rewrites a tweet's HTML content.
 // Some public Nitter instances seem to be misconfigured, e.g. rewriting URLs to
@@ -359,6 +381,16 @@ func rewriteContent(s string) (string, error) {
 	s = imgRegexp.ReplaceAllStringFunc(s, func(o string) string {
 		ms := imgRegexp.FindStringSubmatch(o)
 		return fmt.Sprintf("https://pbs.twimg.com/media/%v?format=%v", ms[1], ms[2])
+	})
+
+	// Rewrite video and thumbnail URLs.
+	s = videoRegexp.ReplaceAllStringFunc(s, func(o string) string {
+		ms := videoRegexp.FindStringSubmatch(o)
+		return "https://video.twimg.com/tweet_video/" + ms[1]
+	})
+	s = videoThumbRegexp.ReplaceAllStringFunc(s, func(o string) string {
+		ms := videoThumbRegexp.FindStringSubmatch(o)
+		return "https://video.twimg.com/tweet_video_thumb/" + ms[1]
 	})
 
 	// TODO: Rewrite Invidious links.

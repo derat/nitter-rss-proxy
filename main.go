@@ -296,13 +296,20 @@ func (hnd *handler) rewrite(w http.ResponseWriter, b []byte, user string) error 
 	}
 }
 
+const (
+	start  = `(?:^|\b)`
+	end    = `(?:$|\b)`
+	scheme = `https?://`
+	host   = `[-.a-zA-Z0-9]+`
+	slash  = `(?:/|%2F)` // Nitter seems to incorrectly (?) escape slashes in some cases.
+)
+
 // iconRegexp exactly matches a Nitter profile image URL,
 // e.g. "https://example.org/pic/profile_images%2F1234567890%2F_AbQ3eRu_400x400.jpg".
-var iconRegexp = regexp.MustCompile(`^https?://` +
-	`[-.a-zA-Z0-9]+` + // hostname
-	`/pic/profile_images(?:/|%2F)` +
+var iconRegexp = regexp.MustCompile(`^` +
+	scheme + host + `/pic` + slash + `profile_images` + slash +
 	`(\d+)` + // group 1: ID
-	`(?:/|%2F)` +
+	slash +
 	`([-_.a-zA-Z0-9]+)$`) // group 2: ID, size, extension
 
 // rewriteIconURL rewrites a Nitter profile image URL to the corresponding Twitter URL.
@@ -314,56 +321,88 @@ func rewriteIconURL(u string) string {
 	return fmt.Sprintf("https://pbs.twimg.com/profile_images/%v/%v", ms[1], ms[2])
 }
 
-// tweetRegexp matches a Nitter URL referring to a tweet,
-// e.g. "https://example.org/someuser/status/1234567890#m",
-// within a larger block of text. The scheme is optional.
-var tweetRegexp = regexp.MustCompile(`(?:^|\b)?` +
-	`(https?://)?` + // group 1: optional scheme
-	`[-.a-zA-Z0-9]+/` + // hostname
-	`([_a-zA-Z0-9]+)` + // group 2: username
-	`/status/` +
-	`([0-9]+)` + // group 3: tweet ID
-	`(?:#m)?` + // nitter adds these hashes
-	`(?:$|\b)?`)
-
-// imgRegexp matches a Nitter URL referring to an image,
-// e.g. "https://example.org/pic/media%2FA3B6MFcQXBBcIa2.jpg",
-// within a larger block of text.
-var imgRegexp = regexp.MustCompile(`(?:^|\b)?` +
-	`https?://` +
-	`[-.a-zA-Z0-9]+/pic/media` + // hostname
-	`(?:/|%2F)` + // nitter seems to use %2F here; bug?
-	`([-_a-zA-Z0-9]+)` + // group 1: image ID
-	`\.(jpg|png)` + // group 2: extension
-	`(?:$|\b)?`)
-
-// videoRegexp matches a Nitter URL referring to a video,
-// e.g. "https://example.org/pic/video.twimg.com%2Ftweet_video%2FA47B3e5XMAM233z.mp4",
-// within a larger block of text.
-var videoRegexp = regexp.MustCompile(`(?:^|\b)?` +
-	`https?://` +
-	`[-.a-zA-Z0-9]+/pic/video.twimg.com` + // hostname
-	`(?:/|%2F)tweet_video(?:/|%2F)` +
-	`([-_.a-zA-Z0-9]+)` + // group 1: video name and extension
-	`(?:$|\b)?`)
-
-// videoThumbRegexp matches a Nitter URL referring to a video thumbnail,
-// e.g. "http://example.org/pic/tweet_video_thumb%2FA47B3e5XMAM233z.jpg",
-// within a larger block of text.
-var videoThumbRegexp = regexp.MustCompile(`(?:^|\b)?` +
-	`https?://` +
-	`[-.a-zA-Z0-9]+/pic/tweet_video_thumb` + // hostname
-	`(?:/|%2F)` +
-	`([-_.a-zA-Z0-9]+)` + // group 1: thumbnail name and extension
-	`(?:$|\b)?`)
-
-// youtubeRegexp matches an Invidious URL referring to a YouTube URL,
-// e.g. "https://example.org/watch?v=AxWGuBDrA1u", within a larger block of text.
-var youtubeRegexp = regexp.MustCompile(`(?:^|\b)?` +
-	`(https?://)?` + // group 1: optional scheme
-	`[-.a-zA-Z0-9]+/watch\?v=` + // hostname
-	`([-_a-zA-Z0-9]+)` + // group 2: video ID
-	`(?:$|\b)?`)
+// rewritePatterns is used by rewriteContent to rewrite URLs within tweets.
+var rewritePatterns = []struct {
+	re *regexp.Regexp
+	fn func(ms []string) string // matching groups from re are passed
+}{
+	{
+		// Nitter URL referring to a tweet, e.g.
+		// "https://example.org/someuser/status/1234567890#m". The scheme is optional.
+		regexp.MustCompile(start +
+			`(` + scheme + `)?` + // group 1: optional scheme
+			host + `/` +
+			`([_a-zA-Z0-9]+)` + // group 2: username
+			slash + `status` + slash +
+			`(\d+)` + // group 3: tweet ID
+			`(?:#m)?` + // nitter adds these hashes
+			end),
+		func(ms []string) string {
+			u := fmt.Sprintf("twitter.com/%v/status/%v", ms[2], ms[3])
+			if ms[1] != "" {
+				u = "https://" + u
+			}
+			return u
+		},
+	},
+	{
+		// Nitter URL referring to an image, e.g.
+		// "https://example.org/pic/media%2FA3B6MFcQXBBcIa2.jpg".
+		regexp.MustCompile(start +
+			scheme + host + `/pic` + slash + `media` + slash +
+			`([-_a-zA-Z0-9]+)` + // group 1: image ID
+			`\.(jpg|png)` + // group 2: extension
+			end),
+		func(ms []string) string { return fmt.Sprintf("https://pbs.twimg.com/media/%v?format=%v", ms[1], ms[2]) },
+	},
+	{
+		// Nitter URL referring to a video, e.g.
+		// "https://example.org/pic/video.twimg.com%2Ftweet_video%2FA47B3e5XMAM233z.mp4".
+		regexp.MustCompile(start +
+			scheme + host + `/pic` + slash + `video.twimg.com` + slash + `tweet_video` + slash +
+			`([-_.a-zA-Z0-9]+)` + // group 1: video name and extension
+			end),
+		func(ms []string) string { return "https://video.twimg.com/tweet_video/" + ms[1] },
+	},
+	{
+		// Nitter URL referring to a video thumbnail, e.g.
+		// "http://example.org/pic/tweet_video_thumb%2FA47B3e5XMAM233z.jpg".
+		regexp.MustCompile(start +
+			scheme + host + `/pic` + slash + `tweet_video_thumb` + slash +
+			`([-_.a-zA-Z0-9]+)` + // group 1: thumbnail name and extension
+			end),
+		func(ms []string) string { return "https://video.twimg.com/tweet_video/" + ms[1] },
+	},
+	{
+		// Nitter URL referring to an external (?) video thumbnail, e.g.
+		// "https://example.org/pic/ext_tw_video_thumb%2F3516826898992848541%2Fpu%2Fimg%2FaB-5ho5t2AlIL7sK.jpg".
+		regexp.MustCompile(start +
+			scheme + host + `/pic` + slash + `ext_tw_video_thumb` + slash +
+			`(\d+)` + // group 1: tweet ID (?)
+			slash + `pu` + slash + `img` + slash +
+			`([-_.a-zA-Z0-9]+)` + // group 2: thumbnail name and extension
+			end),
+		func(ms []string) string {
+			return "https://pbs.twimg.com/ext_tw_video_thumb/" + ms[1] + "/pu/img/" + ms[2]
+		},
+	},
+	{
+		// Invidious URL referring to a YouTube URL, e.g.
+		// "https://example.org/watch?v=AxWGuBDrA1u". The scheme is optional.
+		regexp.MustCompile(start +
+			`(` + scheme + `)?` + // group 1: optional scheme
+			host + `/watch\?v=` +
+			`([-_a-zA-Z0-9]+)` + // group 2: video ID
+			end),
+		func(ms []string) string {
+			u := "youtube.com/watch?v=" + ms[2]
+			if ms[1] != "" {
+				u = "https://" + u
+			}
+			return u
+		},
+	},
+}
 
 // rewriteContent rewrites a tweet's HTML content.
 // Some public Nitter instances seem to be misconfigured, e.g. rewriting URLs to
@@ -372,43 +411,11 @@ var youtubeRegexp = regexp.MustCompile(`(?:^|\b)?` +
 func rewriteContent(s string) (string, error) {
 	// It'd be better to parse the HTML instead of using regular expressions, but that's quite
 	// painful to do (see https://github.com/derat/twittuh) so I'm trying to avoid it for now.
-
-	// Rewrite Tweet URLs. Only add a scheme if there was one initially
-	// (schemes seem to be omitted in link text).
-	s = tweetRegexp.ReplaceAllStringFunc(s, func(o string) string {
-		ms := tweetRegexp.FindStringSubmatch(o)
-		u := fmt.Sprintf("twitter.com/%v/status/%v", ms[2], ms[3])
-		if ms[1] != "" {
-			u = "https://" + u
-		}
-		return u
-	})
-
-	// Rewrite image URLs.
-	s = imgRegexp.ReplaceAllStringFunc(s, func(o string) string {
-		ms := imgRegexp.FindStringSubmatch(o)
-		return fmt.Sprintf("https://pbs.twimg.com/media/%v?format=%v", ms[1], ms[2])
-	})
-
-	// Rewrite YouTube (Invidious) URLs.
-	s = youtubeRegexp.ReplaceAllStringFunc(s, func(o string) string {
-		ms := youtubeRegexp.FindStringSubmatch(o)
-		u := "youtube.com/watch?v=" + ms[2]
-		if ms[1] != "" {
-			u = "https://" + u
-		}
-		return u
-	})
-
-	// Rewrite video and thumbnail URLs.
-	s = videoRegexp.ReplaceAllStringFunc(s, func(o string) string {
-		ms := videoRegexp.FindStringSubmatch(o)
-		return "https://video.twimg.com/tweet_video/" + ms[1]
-	})
-	s = videoThumbRegexp.ReplaceAllStringFunc(s, func(o string) string {
-		ms := videoThumbRegexp.FindStringSubmatch(o)
-		return "https://video.twimg.com/tweet_video_thumb/" + ms[1]
-	})
+	for _, rw := range rewritePatterns {
+		s = rw.re.ReplaceAllStringFunc(s, func(o string) string {
+			return rw.fn(rw.re.FindStringSubmatch(o))
+		})
+	}
 
 	// TODO: Fetch embedded tweets.
 

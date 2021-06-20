@@ -371,7 +371,7 @@ var rewritePatterns = []struct {
 			scheme + host + `/pic` + slash + `tweet_video_thumb` + slash +
 			`([-_.a-zA-Z0-9]+)` + // group 1: thumbnail name and extension
 			end),
-		func(ms []string) string { return "https://video.twimg.com/tweet_video/" + ms[1] },
+		func(ms []string) string { return "https://video.twimg.com/tweet_video_thumb/" + ms[1] },
 	},
 	{
 		// Nitter URL referring to an external (?) video thumbnail, e.g.

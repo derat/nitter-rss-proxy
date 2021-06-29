@@ -402,6 +402,22 @@ var rewritePatterns = []struct {
 			return u
 		},
 	},
+	{
+		// Invidious URL without /watch?v=, e.g.
+		// "https://invidious.snopyta.org/AxWGuBDrA1u". The scheme is optional.
+		regexp.MustCompile(start +
+			`(` + scheme + `)?` + // group 1: optional scheme
+			`invidious\.snopyta\.org/` +
+			`([-_a-zA-Z0-9]{8,})` + // group 2: video ID
+			end),
+		func(ms []string) string {
+			u := "youtube.com/watch?v=" + ms[2]
+			if ms[1] != "" {
+				u = "https://" + u
+			}
+			return u
+		},
+	},
 }
 
 // rewriteContent rewrites a tweet's HTML content.

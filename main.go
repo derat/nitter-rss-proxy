@@ -44,6 +44,7 @@ func main() {
 	addr := flag.String("addr", "localhost:8080", "Network address to listen on")
 	base := flag.String("base", "", "Base URL for served feeds")
 	flag.BoolVar(&opts.cycle, "cycle", true, "Cycle through instances")
+	flag.BoolVar(&opts.debugAuthors, "debug-authors", true, "Log per-author tweet counts")
 	fastCGI := flag.Bool("fastcgi", false, "Use FastCGI instead of listening on -addr")
 	format := flag.String("format", "atom", `Feed format to write ("atom", "json", "rss")`)
 	instances := flag.String("instances", "https://nitter.net", "Comma-separated list of URLS of Nitter instances to use")
@@ -86,10 +87,11 @@ type handler struct {
 }
 
 type handlerOptions struct {
-	cycle   bool // cycle through instances
-	timeout time.Duration
-	format  feedFormat
-	rewrite bool // rewrite tweet content to point at Twitter
+	cycle        bool // cycle through instances
+	timeout      time.Duration
+	format       feedFormat
+	rewrite      bool // rewrite tweet content to point at Twitter
+	debugAuthors bool // log per-author tweet counts
 }
 
 func newHandler(base, instances string, opts handlerOptions) (*handler, error) {
@@ -215,6 +217,8 @@ func (hnd *handler) rewrite(w http.ResponseWriter, b []byte, user string) error 
 		feed.Image = &feeds.Image{Url: img}
 	}
 
+	authorCnt := make(map[string]int)
+
 	for _, oi := range of.Items {
 		// The Content field seems to be empty. gofeed appears to instead return the
 		// content (often including HTML) in the Description field.
@@ -254,6 +258,8 @@ func (hnd *handler) rewrite(w http.ResponseWriter, b []byte, user string) error 
 			item.Author = &feeds.Author{Name: oi.DublinCoreExt.Creator[0]}
 		}
 
+		authorCnt[item.Author.Name] += 1
+
 		// Nitter dumps the entire content into the title.
 		// This looks ugly in Feedly, so truncate it.
 		if ut := []rune(item.Title); len(ut) > titleLen {
@@ -261,6 +267,13 @@ func (hnd *handler) rewrite(w http.ResponseWriter, b []byte, user string) error 
 		}
 
 		feed.Add(item)
+	}
+
+	// I've been seeing an occasional bug where a given feed will suddenly include a bunch of
+	// unrelated tweets from some other feed. I'm assuming it's caused by one or more buggy Nitter
+	// instances.
+	if hnd.opts.debugAuthors {
+		log.Printf("Authors for %v: %v", user, authorCnt)
 	}
 
 	switch hnd.opts.format {

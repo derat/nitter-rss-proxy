@@ -54,3 +54,15 @@ The server passes `GET` request paths to the Nitter instance:
 
 You can also pass the `-user` flag to fetch the supplied user's feed and write
 it to stdout.
+
+### Docker
+
+[Docker] can be used to run `nitter-rss-proxy` in a container. The
+[Dockerfile](./Dockerfile) in this repository builds a container image that runs
+an instance of `nitter-rss-proxy` listening for HTTP `GET` requests on port 8080.
+
+The image's default entrypoint is the `nitter-rss-proxy` command. At the very
+least, you'll probably want to pass the `-instances` flag and a comma-separated
+list of Nitter instances to cycle between.
+
+[Docker]: https://www.docker.com/

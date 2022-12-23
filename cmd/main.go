@@ -58,19 +58,18 @@ func main() {
 
 	var instanceProvider provider.InstancesProvider
 	if autoInstances != nil && *autoInstances {
+		log.Println("Using auto instances")
 		cfg := map[string]interface{}{
 			"repoProxy": os.Getenv("REPO_PROXY"),
 		}
 		instanceProvider = provider.NewGithubWikiProvider()
+		log.Println("start init provider...")
 		if err := instanceProvider.Init(cfg); err != nil {
 			log.Fatal("Failed initializing instance provider: ", err)
 		}
-		// instanceSlice, err := instanceProvider.GetAllHosts()
-		// if err != nil {
-		// 	log.Fatal("Failed getting instances: ", err)
-		// }
-		// *instances = strings.Join(instanceSlice, ",")
+		log.Println("init provider success")
 	} else {
+		log.Println("Using static instances with flag -instances: ", *instances)
 		instanceProvider = provider.NewStaticProvider()
 		if err := instanceProvider.Init(map[string]interface{}{"instance": strings.Split(*instances, ",")}); err != nil {
 			log.Fatal("Failed initializing instance provider: ", err)

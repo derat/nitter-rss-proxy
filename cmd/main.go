@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/fcgi"
@@ -210,7 +209,7 @@ func (hnd *handler) fetch(instance *url.URL, user string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("server returned status %v (%v)", resp.StatusCode, resp.Status)
 	}
-	return ioutil.ReadAll(resp.Body)
+	return io.ReadAll(resp.Body)
 }
 
 // rewrite parses user's feed from b and rewrites it to w.

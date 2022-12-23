@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/derat/nitter-rss-proxy/pkg/provider"
 	"github.com/gorilla/feeds"
 	"github.com/mmcdole/gofeed"
 )
@@ -40,7 +41,6 @@ const (
 
 func main() {
 	var opts handlerOptions
-
 	addr := flag.String("addr", "localhost:8080", "Network address to listen on")
 	base := flag.String("base", "", "Base URL for served feeds")
 	flag.BoolVar(&opts.cycle, "cycle", true, "Cycle through instances")
@@ -48,6 +48,7 @@ func main() {
 	fastCGI := flag.Bool("fastcgi", false, "Use FastCGI instead of listening on -addr")
 	format := flag.String("format", "atom", `Feed format to write ("atom", "json", "rss")`)
 	instances := flag.String("instances", "https://nitter.net", "Comma-separated list of URLS of Nitter instances to use")
+	autoInstances := flag.Bool("auto-instances", true, "Automatically fetch instances from GitHub wiki")
 	flag.BoolVar(&opts.rewrite, "rewrite", true, "Rewrite tweet content to point at twitter.com")
 	timeout := flag.Int("timeout", 10, "HTTP timeout in seconds for fetching a feed from a Nitter instance")
 	user := flag.String("user", "", "User to fetch to stdout (instead of starting a server)")
@@ -56,11 +57,30 @@ func main() {
 	opts.format = feedFormat(*format)
 	opts.timeout = time.Duration(*timeout) * time.Second
 
-	hnd, err := newHandler(*base, *instances, opts)
+	var instanceProvider provider.InstancesProvider
+	if autoInstances != nil && *autoInstances {
+		cfg := map[string]interface{}{
+			"repoProxy": os.Getenv("REPO_PROXY"),
+		}
+		instanceProvider = provider.NewGithubWikiProvider()
+		if err := instanceProvider.Init(cfg); err != nil {
+			log.Fatal("Failed initializing instance provider: ", err)
+		}
+		// instanceSlice, err := instanceProvider.GetAllHosts()
+		// if err != nil {
+		// 	log.Fatal("Failed getting instances: ", err)
+		// }
+		// *instances = strings.Join(instanceSlice, ",")
+	} else {
+		instanceProvider = provider.NewStaticProvider()
+		if err := instanceProvider.Init(map[string]interface{}{"instance": strings.Split(*instances, ",")}); err != nil {
+			log.Fatal("Failed initializing instance provider: ", err)
+		}
+	}
+	hnd, err := newHandler(*base, instanceProvider, opts)
 	if err != nil {
 		log.Fatal("Failed creating handler: ", err)
 	}
-
 	if *user != "" {
 		w := fakeResponseWriter{}
 		req, _ := http.NewRequest(http.MethodGet, "/"+*user, nil)
@@ -94,7 +114,7 @@ type handlerOptions struct {
 	debugAuthors bool // log per-author tweet counts
 }
 
-func newHandler(base, instances string, opts handlerOptions) (*handler, error) {
+func newHandler(base string, instancesProvider provider.InstancesProvider, opts handlerOptions) (*handler, error) {
 	hnd := &handler{
 		client: http.Client{Timeout: opts.timeout},
 		opts:   opts,
@@ -106,8 +126,11 @@ func newHandler(base, instances string, opts handlerOptions) (*handler, error) {
 			return nil, fmt.Errorf("failed parsing %q: %v", base, err)
 		}
 	}
-
-	for _, in := range strings.Split(instances, ",") {
+	instances := instancesProvider.GetActiveInstances()
+	if len(instances) == 0 {
+		instances = instancesProvider.GetAllInstances()
+	}
+	for _, in := range instances {
 		// Hack to permit trailing commas to make it easier to comment out instances in configs.
 		if in == "" {
 			continue

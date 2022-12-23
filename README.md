@@ -36,6 +36,8 @@ Usage of nitter-rss-proxy:
         Feed format to write ("atom", "json", "rss") (default "atom")
   -instances string
         Comma-separated list of URLS of Nitter instances to use (default "https://nitter.net")
+  -"auto-instances"
+        Automatically fetch a list of Nitter instances from https://github.com/zedeus/nitter/wiki/instances
   -rewrite
         Rewrite tweet content to point at twitter.com (default true)
   -timeout int
@@ -43,6 +45,9 @@ Usage of nitter-rss-proxy:
   -user string
         User to fetch to stdout (instead of starting a server)
 ```
+environment variables:
+  - `REPO_PROXY` - proxy for fetching list of instances from github repo wiki page
+
 
 The server passes `GET` request paths to the Nitter instance:
 

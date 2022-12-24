@@ -47,6 +47,7 @@ Usage of nitter-rss-proxy:
 ```
 environment variables:
   - `REPO_PROXY` - proxy for fetching list of instances from github repo wiki page
+  - `INTERVAL_OF_RESET` - hour interval of reset of instances list (default 24)
 
 
 The server passes `GET` request paths to the Nitter instance:

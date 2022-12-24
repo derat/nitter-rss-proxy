@@ -60,7 +60,8 @@ func main() {
 	if autoInstances != nil && *autoInstances {
 		log.Println("Using auto instances")
 		cfg := map[string]interface{}{
-			"repoProxy": os.Getenv("REPO_PROXY"),
+			"repoProxy":       os.Getenv("REPO_PROXY"),
+			"intervalOfReset": os.Getenv("INTERVAL_OF_RESET"),
 		}
 		instanceProvider = provider.NewGithubWikiProvider()
 		log.Println("start init provider...")

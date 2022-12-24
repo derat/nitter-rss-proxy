@@ -30,7 +30,8 @@ type githubwikiProvider struct {
 	// 仓库http客户端
 	repoHttpClient *http.Client
 	// 解析表达式
-	expr string
+	expr            string
+	intervalOfReset uint
 }
 
 func NewGithubWikiProvider() InstancesProvider {
@@ -55,6 +56,9 @@ func (p *githubwikiProvider) Init(cfg map[string]interface{}) error {
 			} else {
 				p.repoProxy = uri
 			}
+		}
+		if intervalOfReset, ok := cfg["intervalOfReset"]; ok {
+			p.intervalOfReset = intervalOfReset.(uint)
 		}
 	}
 	if p.repoProxy == nil {
@@ -93,7 +97,8 @@ func (p *githubwikiProvider) GetActiveInstances() []string {
 
 func (p *githubwikiProvider) monitorHosts() {
 	go resetHosts(p)
-	go pingHosts(p)
+	// remove pingHosts
+	// go pingHosts(p)
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	<-c
@@ -183,25 +188,26 @@ func resetHostOnce(p *githubwikiProvider) {
 	p.hosts = result
 }
 
-func pingHosts(p *githubwikiProvider) {
-	for {
-		time.Sleep(10 * time.Second)
-		for _, hws := range p.hosts {
-			deloy, err := pingHost(hws.URL)
-			if err != nil {
-				hws.status = false
-			} else {
-				hws.status = true
-				hws.delay = deloy
-			}
+// func pingHosts(p *githubwikiProvider) {
+// 	for {
+// 		time.Sleep(p.intervalOfPing)
+// 		for _, hws := range p.hosts {
+// 			deloy, err := pingHost(hws.URL)
+// 			if err != nil {
+// 				hws.status = false
+// 			} else {
+// 				hws.status = true
+// 				hws.delay = deloy
+// 			}
 
-		}
-	}
-}
+// 		}
+// 	}
+// }
 
 func resetHosts(p *githubwikiProvider) {
 	for {
-		time.Sleep(30 * time.Minute)
+		sleepTime := time.Duration(p.intervalOfReset) * time.Hour
+		time.Sleep(sleepTime)
 		resetHostOnce(p)
 	}
 }

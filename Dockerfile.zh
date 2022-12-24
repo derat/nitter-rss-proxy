@@ -1,6 +1,8 @@
 FROM golang:alpine as builder
 WORKDIR /build
 COPY . .
+RUN go env -w GO111MODULE=auto \
+  && go env -w GOPROXY=https://goproxy.cn,direct 
 RUN go build -o /nitter-rss-proxy
 
 FROM alpine

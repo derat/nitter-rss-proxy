@@ -313,7 +313,7 @@ const (
 	start  = `(?:^|\b)`
 	end    = `(?:$|\b)`
 	scheme = `https?://`
-	host   = `[-.a-zA-Z0-9]+`
+	host   = `[a-zA-Z0-9][-a-zA-Z0-9]*\.[-.a-zA-Z0-9]+`
 	slash  = `(?:/|%2F)` // Nitter seems to incorrectly (?) escape slashes in some cases.
 )
 
@@ -341,11 +341,13 @@ var rewritePatterns = []struct {
 }{
 	{
 		// Nitter URL referring to a tweet, e.g.
-		// "https://example.org/someuser/status/1234567890#m". The scheme is optional.
+		// "https://example.org/someuser/status/1234567890#m" or
+		// "https://example.org/i/web/status/1234567890".
+		// The scheme is optional.
 		regexp.MustCompile(start +
 			`(` + scheme + `)?` + // group 1: optional scheme
 			host + `/` +
-			`([_a-zA-Z0-9]+)` + // group 2: username
+			`([_a-zA-Z0-9]+|i/web)` + // group 2: username or weird 'i/web' thing
 			slash + `status` + slash +
 			`(\d+)` + // group 3: tweet ID
 			`(?:#m)?` + // nitter adds these hashes

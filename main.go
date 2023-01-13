@@ -320,8 +320,11 @@ const (
 
 // iconRegexp exactly matches a Nitter profile image URL,
 // e.g. "https://example.org/pic/profile_images%2F1234567890%2F_AbQ3eRu_400x400.jpg".
+// At some point, Nitter seems to have started adding "/pbs.twimg.com" after "/pic".
 var iconRegexp = regexp.MustCompile(`^` +
-	scheme + host + `/pic` + slash + `profile_images` + slash +
+	scheme + host +
+	`/pic(?:/pbs\.twimg\.com)?` + slash +
+	`profile_images` + slash +
 	`(\d+)` + // group 1: ID
 	slash +
 	`([-_.a-zA-Z0-9]+)$`) // group 2: ID, size, extension

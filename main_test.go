@@ -40,3 +40,22 @@ func TestRewriteContent(t *testing.T) {
 		}
 	}
 }
+
+func TestRewriteIconURL(t *testing.T) {
+	for _, tc := range []struct {
+		orig, want string
+	}{
+		{
+			`http://example.org/pic%2Fprofile_images%2F1591604213976530946%2F0CF-Esuh_400x400.jpg`,
+			`https://pbs.twimg.com/profile_images/1591604213976530946/0CF-Esuh_400x400.jpg`,
+		},
+		{
+			`http://example.org/pic/pbs.twimg.com%2Fprofile_images%2F1591604213976530946%2F0CF-Esuh_400x400.jpg`,
+			`https://pbs.twimg.com/profile_images/1591604213976530946/0CF-Esuh_400x400.jpg`,
+		},
+	} {
+		if got := rewriteIconURL(tc.orig); got != tc.want {
+			t.Errorf("rewriteIconURL(%q) = %q; want %q", tc.orig, got, tc.want)
+		}
+	}
+}

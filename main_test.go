@@ -12,6 +12,10 @@ func TestRewriteContent(t *testing.T) {
 		orig, want string
 	}{
 		{
+			`<img src="https://nitter.1d4.us/pic/enc/bWVkaWEvRm1EaXZmTFhrQUlnREFYLmpwZw==" style="max-width:250px;" />`,
+			`<img src="https://pbs.twimg.com/media/FmDivfLXkAIgDAX?format=jpg" style="max-width:250px;" />`,
+		},
+		{
 			`<a href="https://nitter.net/foo/status/12345">nitter.net/foo/status/123…</a>`,
 			`<a href="https://twitter.com/foo/status/12345">twitter.com/foo/status/123…</a>`,
 		},

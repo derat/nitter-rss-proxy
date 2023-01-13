@@ -27,23 +27,25 @@ Compile and install the server by running `go install`.
 ```
 Usage of nitter-rss-proxy:
   -addr string
-        Network address to listen on (default "localhost:8080")
+    	Network address to listen on (default "localhost:8080")
   -base string
-        Base URL for served feeds
+    	Base URL for served feeds
   -cycle
-        Cycle through instances (default true)
+    	Cycle through instances (default true)
+  -debug-authors
+    	Log per-author tweet counts (default true)
   -fastcgi
-        Use FastCGI instead of listening on -addr
+    	Use FastCGI instead of listening on -addr
   -format string
-        Feed format to write ("atom", "json", "rss") (default "atom")
+    	Feed format to write ("atom", "json", "rss") (default "atom")
   -instances string
-        Comma-separated list of URLS of Nitter instances to use (default "https://nitter.net")
+    	Comma-separated list of URLs of Nitter instances to use (default "https://twiiit.com")
   -rewrite
-        Rewrite tweet content to point at twitter.com (default true)
+    	Rewrite tweet content to point at twitter.com (default true)
   -timeout int
-        HTTP timeout in seconds for fetching a feed from a Nitter instance (default 10)
+    	HTTP timeout in seconds for fetching a feed from a Nitter instance (default 10)
   -user string
-        User to fetch to stdout (instead of starting a server)
+    	User to fetch to stdout (instead of starting a server)
 ```
 
 The server passes `GET` request paths to the Nitter instance:

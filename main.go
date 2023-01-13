@@ -48,7 +48,7 @@ func main() {
 	flag.BoolVar(&opts.debugAuthors, "debug-authors", true, "Log per-author tweet counts")
 	fastCGI := flag.Bool("fastcgi", false, "Use FastCGI instead of listening on -addr")
 	format := flag.String("format", "atom", `Feed format to write ("atom", "json", "rss")`)
-	instances := flag.String("instances", "https://nitter.net", "Comma-separated list of URLS of Nitter instances to use")
+	instances := flag.String("instances", "https://twiiit.com", "Comma-separated list of URLs of Nitter instances to use")
 	flag.BoolVar(&opts.rewrite, "rewrite", true, "Rewrite tweet content to point at twitter.com")
 	timeout := flag.Int("timeout", 10, "HTTP timeout in seconds for fetching a feed from a Nitter instance")
 	user := flag.String("user", "", "User to fetch to stdout (instead of starting a server)")

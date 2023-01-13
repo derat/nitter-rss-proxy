@@ -1,5 +1,7 @@
 # nitter-rss-proxy
 
+[![Build Status](https://storage.googleapis.com/derat-build-badges/e06fdbf3-0063-447a-9e33-6a1c1b583941.svg)](https://storage.googleapis.com/derat-build-badges/e06fdbf3-0063-447a-9e33-6a1c1b583941.html)
+
 [Twitter stopped providing RSS feeds] in 2011. [Nitter], an alternate Twitter
 frontend, [serves ATOM feeds], and there are various [public Nitter instances].
 However, the public instances are constantly going up and down or getting

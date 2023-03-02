@@ -1,0 +1,47 @@
+name: build and push
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+jobs:
+  build:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@master
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@master
+      - name: Login to DockerHub
+        uses: docker/login-action@master
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_PASS }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@master
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push
+        uses: docker/build-push-action@master
+        with:
+          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6,linux/386
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USER }}/nitter-rss-proxy:latest
+            ghcr.io/${{ github.repository_owner }}/nitter-rss-proxy:latest
+
+      - name: Docker Hub Description
+        uses: peter-evans/dockerhub-description@main
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_PASS }}
+          repository: ${{ secrets.DOCKERHUB_USER }}/nitter-rss-proxy
+          short-description: "HTTP server that proxies Twitter RSS feeds served by Nitter"
+          readme-filepath: README.md

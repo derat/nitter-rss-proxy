@@ -56,6 +56,9 @@ The server passes `GET` request paths to the Nitter instance:
 *   `http://localhost:8080/USPS/search`
 *   `http://localhost:8080/USPS/with_replies`
 
+It also passes `max_position=[ID]` query parameters to Nitter and includes
+`Min-Id` headers in responses.
+
 You can also pass the `-user` flag to fetch the supplied user's feed and write
 it to stdout.
 

@@ -27,7 +27,8 @@ import (
 )
 
 const (
-	titleLen = 80 // max length of title text in feed, in runes
+	titleLen    = 80       // max length of title text in feed, in runes
+	minIDHeader = "Min-Id" // header returned by Nitter with min ID among items
 )
 
 // feedFormat describes different feed formats that can be written.
@@ -126,10 +127,15 @@ func newHandler(base, instances string, opts handlerOptions) (*handler, error) {
 	return hnd, nil
 }
 
-// Matches comma-separated Twitter usernames with an optional /media, /search, or /with_replies suffix
-// supported by Nitter's RSS handler (https://github.com/zedeus/nitter/blob/master/src/routes/rss.nim).
-// Ignores any leading junk that might be present in the path e.g. when proxying a prefix to FastCGI.
-var userRegexp = regexp.MustCompile(`[_a-zA-Z0-9,]+(/(media|search|with_replies))?$`)
+var (
+	// Matches comma-separated Twitter usernames with an optional /media, /search, or /with_replies suffix
+	// supported by Nitter's RSS handler (https://github.com/zedeus/nitter/blob/master/src/routes/rss.nim).
+	// Ignores any leading junk that might be present in the path e.g. when proxying a prefix to FastCGI.
+	userRegexp = regexp.MustCompile(`[_a-zA-Z0-9,]+(/(media|search|with_replies))?$`)
+
+	// Matches valid query parameters to forward to Nitter.
+	queryRegexp = regexp.MustCompile(`^max_position=[^&]+$`)
+)
 
 func (hnd *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
@@ -148,6 +154,10 @@ func (hnd *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "Invalid user", http.StatusBadRequest)
 		return
 	}
+	var query string
+	if queryRegexp.MatchString(req.URL.RawQuery) {
+		query = req.URL.RawQuery
+	}
 
 	start := hnd.start
 	if hnd.opts.cycle {
@@ -158,11 +168,12 @@ func (hnd *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	for i := 0; i < len(hnd.instances); i++ {
 		in := hnd.instances[(start+i)%len(hnd.instances)]
-		b, err := hnd.fetch(in, user)
+		b, minID, err := hnd.fetch(in, user, query)
 		if err != nil {
 			log.Printf("Failed fetching %v from %v: %v", user, in, err)
 			continue
 		}
+		w.Header().Set(minIDHeader, minID)
 		if err := hnd.rewrite(w, b, user); err != nil {
 			log.Printf("Failed rewriting %v from %v: %v", user, in, err)
 			continue
@@ -175,20 +186,24 @@ func (hnd *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 // fetch fetches user's feed from supplied Nitter instance.
 // user follows the format used by Nitter: it can be a single username or a comma-separated
 // list of usernames, with an optional /media, /search, or /with_replies suffix.
-func (hnd *handler) fetch(instance *url.URL, user string) ([]byte, error) {
+// If query is non-empty, it will be passed to the instance.
+// The response body and Min-Id header value are returned.
+func (hnd *handler) fetch(instance *url.URL, user, query string) ([]byte, string, error) {
 	u := *instance
 	u.Path = path.Join(u.Path, user, "rss")
+	u.RawQuery = query
 
 	log.Print("Fetching ", u.String())
 	resp, err := hnd.client.Get(u.String())
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server returned status %v (%v)", resp.StatusCode, resp.Status)
+		return nil, "", fmt.Errorf("server returned status %v (%v)", resp.StatusCode, resp.Status)
 	}
-	return ioutil.ReadAll(resp.Body)
+	b, err := ioutil.ReadAll(resp.Body)
+	return b, resp.Header.Get(minIDHeader), err
 }
 
 // rewrite parses user's feed from b and rewrites it to w.

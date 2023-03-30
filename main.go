@@ -168,13 +168,13 @@ func (hnd *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	for i := 0; i < len(hnd.instances); i++ {
 		in := hnd.instances[(start+i)%len(hnd.instances)]
-		b, minID, err := hnd.fetch(in, user, query)
+		b, loc, minID, err := hnd.fetch(in, user, query)
 		if err != nil {
 			log.Printf("Failed fetching %v from %v: %v", user, in, err)
 			continue
 		}
 		w.Header().Set(minIDHeader, minID)
-		if err := hnd.rewrite(w, b, user); err != nil {
+		if err := hnd.rewrite(w, b, user, loc); err != nil {
 			log.Printf("Failed rewriting %v from %v: %v", user, in, err)
 			continue
 		}
@@ -187,8 +187,9 @@ func (hnd *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 // user follows the format used by Nitter: it can be a single username or a comma-separated
 // list of usernames, with an optional /media, /search, or /with_replies suffix.
 // If query is non-empty, it will be passed to the instance.
-// The response body and Min-Id header value are returned.
-func (hnd *handler) fetch(instance *url.URL, user, query string) ([]byte, string, error) {
+// The response body, final location (after redirects), and Min-Id header value are returned.
+func (hnd *handler) fetch(instance *url.URL, user, query string) (
+	body []byte, loc *url.URL, minID string, err error) {
 	u := *instance
 	u.Path = path.Join(u.Path, user, "rss")
 	u.RawQuery = query
@@ -196,18 +197,19 @@ func (hnd *handler) fetch(instance *url.URL, user, query string) ([]byte, string
 	log.Print("Fetching ", u.String())
 	resp, err := hnd.client.Get(u.String())
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	defer resp.Body.Close()
+	loc = resp.Request.URL
 	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("server returned status %v (%v)", resp.StatusCode, resp.Status)
+		return nil, loc, "", fmt.Errorf("server returned %v (%v)", resp.StatusCode, resp.Status)
 	}
-	b, err := ioutil.ReadAll(resp.Body)
-	return b, resp.Header.Get(minIDHeader), err
+	body, err = ioutil.ReadAll(resp.Body)
+	return body, loc, resp.Header.Get(minIDHeader), err
 }
 
 // rewrite parses user's feed from b and rewrites it to w.
-func (hnd *handler) rewrite(w http.ResponseWriter, b []byte, user string) error {
+func (hnd *handler) rewrite(w http.ResponseWriter, b []byte, user string, loc *url.URL) error {
 	of, err := gofeed.NewParser().ParseString(string(b))
 	if err != nil {
 		return err
@@ -240,7 +242,7 @@ func (hnd *handler) rewrite(w http.ResponseWriter, b []byte, user string) error 
 		// content (often including HTML) in the Description field.
 		content := oi.Description
 		if hnd.opts.rewrite {
-			if content, err = rewriteContent(oi.Description); err != nil {
+			if content, err = rewriteContent(oi.Description, loc); err != nil {
 				return err
 			}
 		}
@@ -345,6 +347,8 @@ var iconRegexp = regexp.MustCompile(`^` +
 	`([-_.a-zA-Z0-9]+)$`) // group 2: ID, size, extension
 
 // rewriteIconURL rewrites a Nitter profile image URL to the corresponding Twitter URL.
+// TODO: It seems like this function also needs to handle base64-encoded /pic/enc paths.
+// See e.g. https://nitter.esmailelbob.xyz/nasa/rss.
 func rewriteIconURL(u string) string {
 	ms := iconRegexp.FindStringSubmatch(u)
 	if ms == nil {
@@ -479,17 +483,29 @@ var rewritePatterns = []struct {
 	},
 }
 
-// rewriteContent rewrites a tweet's HTML content.
+// rewriteContent rewrites a tweet's HTML content fetched from loc.
 // Some public Nitter instances seem to be misconfigured, e.g. rewriting URLs to
 // start with "http://localhost", so we just modify all URLs that look like they
 // can be served by Twitter.
-func rewriteContent(s string) (string, error) {
+func rewriteContent(s string, loc *url.URL) (string, error) {
 	// It'd be better to parse the HTML instead of using regular expressions, but that's quite
 	// painful to do (see https://github.com/derat/twittuh) so I'm trying to avoid it for now.
 	for _, rw := range rewritePatterns {
 		s = rw.re.ReplaceAllStringFunc(s, func(o string) string {
 			return rw.fn(rw.re.FindStringSubmatch(o))
 		})
+	}
+
+	// Match all remaining URLs served by the instance and change them to use twitter.com:
+	// https://github.com/derat/nitter-rss-proxy/issues/13
+	if loc != nil {
+		// Match both http:// and https:// since some instances seem to be configured
+		// to always use http:// for links.
+		re, err := regexp.Compile(`\bhttps?://` + regexp.QuoteMeta(loc.Host) + `/[^" ]*`)
+		if err != nil {
+			return s, err
+		}
+		s = re.ReplaceAllStringFunc(s, func(o string) string { return rewriteTwitterURL(o) })
 	}
 
 	// TODO: Fetch embedded tweets.

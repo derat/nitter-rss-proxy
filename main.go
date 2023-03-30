@@ -335,6 +335,35 @@ const (
 	slash  = `(?:/|%2F)` // Nitter seems to incorrectly (?) escape slashes in some cases.
 )
 
+// encPicRegexp matches weird Nitter RULs with base64-encoded image paths,
+// e.g. "https://example.org/pic/enc/bWVkaWEvRm1Jc0R3SldRQUFKV2w4LmpwZw==".
+// We can't use |end| here since \b expects \w on one side and \W on the other,
+// but we may have a URL ending with '=' followed by '"' (both \W).
+var encPicRegexp = regexp.MustCompile(start +
+	// TODO: https://github.com/zedeus/nitter/blob/master/src/utils.nim also has code
+	// for /video/enc/ and /pic/orig/enc/. I'm not bothering to decode those yet since
+	// there aren't any rewrite patterns to further rewrite the resulting URLs.
+	`(` + scheme + host + `/pic/)` + // group 1: start of URL
+	`enc/` +
+	// See "5. Base 64 Encoding with URL and Filename Safe Alphabet" from RFC 4648.
+	`([-_=a-zA-Z0-9]+)`) // group 2: base64-encoded end of URL
+
+// decodeEncPicURL rewrites a URL matched by encPicRegexp to instead be the corresponding
+// non-encoded Nitter URL, e.g. "https://example.org/pic/media/FmN39CgWQAEkNAO.jpg".
+// If the URL is not matched by encPicRegexp, it will be returned unmodified.
+func decodeEncPicURL(u string) string {
+	ms := encPicRegexp.FindStringSubmatch(u)
+	if ms == nil {
+		return u
+	}
+	dec, err := base64.URLEncoding.DecodeString(ms[2])
+	if err != nil {
+		log.Printf("Failed base64-decoding %q: %v", ms[2], err)
+		return u
+	}
+	return ms[1] + string(dec)
+}
+
 // iconRegexp exactly matches a Nitter profile image URL,
 // e.g. "https://example.org/pic/profile_images%2F1234567890%2F_AbQ3eRu_400x400.jpg".
 // At some point, Nitter seems to have started adding "/pbs.twimg.com" after "/pic".
@@ -347,9 +376,9 @@ var iconRegexp = regexp.MustCompile(`^` +
 	`([-_.a-zA-Z0-9]+)$`) // group 2: ID, size, extension
 
 // rewriteIconURL rewrites a Nitter profile image URL to the corresponding Twitter URL.
-// TODO: It seems like this function also needs to handle base64-encoded /pic/enc paths.
-// See e.g. https://nitter.esmailelbob.xyz/nasa/rss.
 func rewriteIconURL(u string) string {
+	// First decode base64-encoded /pic/enc paths, which are used by some Nitter instances.
+	u = decodeEncPicURL(u)
 	ms := iconRegexp.FindStringSubmatch(u)
 	if ms == nil {
 		return u
@@ -363,29 +392,10 @@ var rewritePatterns = []struct {
 	fn func(ms []string) string // matching groups from re are passed
 }{
 	{
-		// Before doing anything else, rewrite weird Nitter URLs with base64-encoded image paths
-		// (e.g. "https://example.org/pic/enc/bWVkaWEvRm1Jc0R3SldRQUFKV2w4LmpwZw==")
-		// to instead be the corresponding non-encoded Nitter URLs
-		// (e.g. "https://example.org/pic/media/FmN39CgWQAEkNAO.jpg").
-		// The later rules may rewrite these further. We can't use |end| here since \b
-		// expects \w on one side and \W on the other, but we may have a URL ending with
-		// '=' followed by '"' (both \W).
-		regexp.MustCompile(start +
-			// TODO: https://github.com/zedeus/nitter/blob/master/src/utils.nim also has code
-			// for /video/enc/ and /pic/orig/enc/. I'm not bothering to decode those yet since
-			// there aren't rewrite patterns to further rewrite the resulting URLs.
-			`(` + scheme + host + `/pic/)` + // group 1: start of URL
-			`enc/` +
-			// See "5. Base 64 Encoding with URL and Filename Safe Alphabet" from RFC 4648.
-			`([-_=a-zA-Z0-9]+)`), // group 2: base64-encoded end of URL
-		func(ms []string) string {
-			dec, err := base64.URLEncoding.DecodeString(ms[2])
-			if err != nil {
-				log.Printf("Failed base64-decoding %q: %v", ms[2], err)
-				return ms[0]
-			}
-			return ms[1] + string(dec)
-		},
+		// Before doing anything else, rewrite base64-encoded image paths.
+		// Later rules may rewrite these further.
+		encPicRegexp,
+		func(ms []string) string { return decodeEncPicURL(ms[0]) },
 	},
 	{
 		// Nitter URL referring to a tweet, e.g.

@@ -74,6 +74,10 @@ func TestRewriteIconURL(t *testing.T) {
 			`http://example.org/pic/pbs.twimg.com%2Fprofile_images%2F1591604213976530946%2F0CF-Esuh_400x400.jpg`,
 			`https://pbs.twimg.com/profile_images/1591604213976530946/0CF-Esuh_400x400.jpg`,
 		},
+		{
+			`http://nitter.esmailelbob.xyz/pic/enc/cGJzLnR3aW1nLmNvbS9wcm9maWxlX2ltYWdlcy8xMzIxMTYzNTg3Njc5Nzg0OTYwLzBaeEtsRUtCXzQwMHg0MDAuanBn`,
+			`https://pbs.twimg.com/profile_images/1321163587679784960/0ZxKlEKB_400x400.jpg`,
+		},
 	} {
 		if got := rewriteIconURL(tc.orig); got != tc.want {
 			t.Errorf("rewriteIconURL(%q) = %q; want %q", tc.orig, got, tc.want)

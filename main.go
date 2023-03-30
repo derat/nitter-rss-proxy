@@ -64,9 +64,9 @@ func main() {
 	}
 
 	if *user != "" {
-		w := fakeResponseWriter{}
+		w := newFakeResponseWriter()
 		req, _ := http.NewRequest(http.MethodGet, "/"+*user, nil)
-		hnd.ServeHTTP(&w, req)
+		hnd.ServeHTTP(w, req)
 		if w.status != http.StatusOK {
 			log.Fatal(w.msg)
 		}
@@ -517,7 +517,12 @@ func rewriteTwitterURL(orig string) string {
 // It's used for the -user flag.
 type fakeResponseWriter struct {
 	status int
-	msg    string
+	msg    string // error from body if Write is called with non-200 status
+}
+
+func newFakeResponseWriter() *fakeResponseWriter {
+	// Default to success in case WriteHeader isn't called.
+	return &fakeResponseWriter{status: http.StatusOK}
 }
 
 func (w *fakeResponseWriter) Header() http.Header { return map[string][]string{} }

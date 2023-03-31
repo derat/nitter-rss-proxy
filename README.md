@@ -39,7 +39,7 @@ Usage of nitter-rss-proxy:
   -format string
     	Feed format to write ("atom", "json", "rss") (default "atom")
   -instances string
-    	Comma-separated list of URLs of Nitter instances to use (default "https://twiiit.com")
+    	Comma-separated list of URLs of Nitter instances to use (default "https://nitter.net")
   -rewrite
     	Rewrite tweet content to point at twitter.com (default true)
   -timeout int
